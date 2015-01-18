@@ -1,0 +1,143 @@
+---
+title: "Practical Machine Learing - Project"
+author: "Davide Mandrini"
+date: "17-JAN-2015"
+output:
+  html_document:
+    theme: cerulean
+---
+
+<!-- code required to load data -->
+```{r echo=FALSE}
+setwd("~/Documents/Coursera_Udacity/Practical Machine Learning/project")
+```
+
+### Introduction
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+### Data
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har.
+
+The training data for this project are available here: 
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: 
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+```{r}
+traindata <- read.csv("pml-training.csv", sep = ",", na.strings = c("NA","#DIV/0!",""))
+testdata <- read.csv("pml-testing.csv", sep = ",", na.strings = c("NA","#DIV/0!",""))
+dim(traindata)
+dim(testdata)
+```
+
+We can observe we have 160 variables in the dataset.
+
+While reading the data, we considered all strings equal to "NA", "#DIV/0!" or "" as NAs values.
+
+#### Data cleaning and predictors choice
+
+We remove the first 7 columns ("X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp",
+"new_window" and "num_window") as they do not contain activity data
+
+```{r}
+traindata <- traindata[,-c(1:7)]
+testdata <- testdata[,-c(1:7)]
+```
+
+Then we remove columns that contains more than 50% of NAs from the training set.
+```{r}
+validCol <- colSums(!is.na(traindata)) > colSums(is.na(traindata))
+traindata <- traindata[,validCol]
+dim(traindata)
+```
+
+There are 53 variables left in the dataset.
+
+We complete the data cleaning step by removing zero variance variables.
+```{r}
+library(caret)
+validCol <- !(nearZeroVar(traindata,saveMetrics = TRUE)$zeroVar)
+traindata <- traindata[,validCol]
+dim(traindata)
+```
+
+We can observe that no variable had zero variance (we still have 53 variables).
+
+The remaining variables will be all used as predictors.
+The final number of predictors for classe variable is then 52.
+
+#### Data slicing
+We split our original training set in two new sets with the same number of observations.
+We will use the two sets as training and testing set to perform a 2-fold cross validation.
+```{r}
+set.seed(54321)
+trainset <- createDataPartition(traindata$classe, p = 0.5, list = FALSE)
+set1 <- traindata[trainset, ]
+set2 <- traindata[-trainset, ]
+dim(set1)
+dim(set2)
+```
+
+### Model
+To predict the classe variable we will use a random forest algorithm from the randomForest package
+```{r}
+library(randomForest)
+modelFit1 <- randomForest(classe ~ ., data = set1, ntree=50)
+modelFit2 <- randomForest(classe ~ ., data = set2, ntree=50)
+``` 
+
+#### Cross validation and out of sample error estimation
+Now that we have computed our models, we can estimate the out of sample error.
+
+We will perform a 2-fold cross validation by using modelFit1 on set2 and modelFit2 on set1.
+As k=2 is small, we expect that our estimation will have more bias and less variance compared to the true out of sample error.
+
+```{r}
+testOnSet2 <- predict(modelFit1, set2)
+cm2 <- confusionMatrix(testOnSet2, set2$classe)
+cm2$table
+cm2$overall[1]
+testOnSet1 <- predict(modelFit2, set1)
+cm1 <- confusionMatrix(testOnSet1, set1$classe)
+cm1$table
+cm1$overall[1]
+```
+
+The two out of sample errors are
+```{r}
+outOfSampleErrors <- c(1 - cm1$overall[1], 1 - cm2$overall[1])
+names(outOfSampleErrors) <- rep("OutOfSampleError", length(outOfSampleErrors))
+outOfSampleErrors
+```
+
+To estimate the final out of sample error we average the errors from each test set.
+```{r}
+mean(outOfSampleErrors)
+```
+
+### Prediction
+Finally we predict classe variable starting from the original test dataset.
+```{r}
+testingPrediction <- predict(modelFit1, testdata)
+testingPrediction
+```
+
+
+#### Submission
+```{r}
+pml_write_files = function(x){
+    n = length(x)
+    for(i in 1:n){
+        filename = paste0("problem_id_",i,".txt")
+        write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+    }
+}
+
+pml_write_files(testingPrediction)
+```
+
+### Citation
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+Read more: http://groupware.les.inf.puc-rio.br/har#ixzz3P59N9iTR
